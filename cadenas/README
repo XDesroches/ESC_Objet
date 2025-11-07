@@ -1,0 +1,41 @@
+# Cadenas — ESP32 (ESP-IDF)
+
+## Matériel
+- ESP32 DevKit, LCD 16×2 I²C (0x27, SDA=21, SCL=22), Joystick (X=34, Y=35, SW=27),
+  LED verte=18 (220–330Ω), LED rouge=19 (220–330Ω), Buzzer=25 (LEDC 4 kHz), GND commun.
+
+## Build & flash (ESP-IDF)
+Brancher ESP32 dans PC
+ESP-IDF : UART
+Port : COM3
+Appuyer sur la flame (Build, Flash, Monitor)
+
+## Fonctionnement
+- Boot: calibrage joystick (~0,8 s).
+- LCD: "Étape X/3 Vie:n", "Cible: NNN°".
+- Bip: lent → moyen → rapide en approchant; volume un peu plus fort au cœur de la zone.
+- Soumission: bouton joystick. OK si |erreur| ≤ 15°. Sinon: -1 vie + retour étape 1.
+- Fin: 3/3 → Victoire (mélodie/vert) ; 0 vie → Défaite (double ton/rouge). Relance auto.
+
+## Arborescence
+main/                    # logique de jeu
+components/
+  lcd1602_i2c/           # driver LCD (I²C 50 kHz, init 4-bits robuste)
+  joystick/              # ADC, calibrage, angle 0–360°, bouton debounced
+  buzzer/                # LEDC 4 kHz, duty base + boost proximité, mélodies
+  leds/                  # helpers LEDs (on/off)
+
+## Test rapide
+1) Flasher; 2) tourner le joystick; 3) écouter le bip; 4) valider.
+Essayer une erreur pour voir la gestion des vies; aller jusqu'à victoire/défaite.
+
+## Paramètres clés
+- TOL_OK_DEG=15° ## Zone pour cliquer sur le joystick
+- NEAR1_DEG=40°  ## Zone de bip lent
+- NEAR2_DEG=20°  ## Zone de bip rapide
+- I²C_LCD_FREQ=50 kHz
+- LEDC buzzer = 4 kHz @ 8 bits
+
+## Remise 2 (communication)
+- MQTT topics: escape/cadenas360/state & /cmd ; dashboard Node-RED.
+

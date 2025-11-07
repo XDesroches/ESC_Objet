@@ -1,0 +1,19 @@
+
+menu "LCD1602 I2C Driver"
+    config LCD1602_I2C_PORT
+        int "I2C port"
+        range 0 1
+        default 0
+    config LCD1602_I2C_SDA
+        int "SDA GPIO"
+        default 21
+    config LCD1602_I2C_SCL
+        int "SCL GPIO"
+        default 22
+    config LCD1602_I2C_ADDR
+        hex "I2C address"
+        default 0x27
+    config LCD1602_I2C_FREQ
+        int "I2C frequency (Hz)"
+        default 400000
+endmenu
