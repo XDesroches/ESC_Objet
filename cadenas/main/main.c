@@ -13,6 +13,20 @@
 #include "lcd1602_i2c.h"
 #include "leds.h"
 
+#include "esp_http_client.h"
+#include "esp_wifi.h"
+#include "nvs_flash.h"
+
+#include "esp_event.h"
+#include "esp_log.h"
+#include "lwip/err.h"
+#include "lwip/sys.h"
+#include "esp_netif.h"
+
+static inline uint64_t now_ms(void) {
+    return esp_timer_get_time() / 1000ULL;
+}
+
 // ---------------- Pins ----------------
 #define PIN_LED_VERTE GPIO_NUM_18
 #define PIN_LED_ROUGE GPIO_NUM_19
@@ -32,8 +46,95 @@
 
 #define LCD_BACKPACK_VARIANT 2
 
-static inline uint64_t now_ms(void) {
-    return esp_timer_get_time() / 1000ULL;
+// ---------------- SERVER COMMUNICATION ----------------
+#define SERVER_IP "0.0.0.0"  // à modifier avec votre ipv4
+#define SERVER_PORT 3000
+
+// Paramètres du réseau WiFi auquel l'ESP32 se connecte (à modifier)
+#define WIFI_SSID "nom de wifi"
+#define WIFI_PASSWORD "mdp"
+
+static void send_time_to_server(uint64_t elapsed_ms) {
+    char post_data[64];
+    snprintf(post_data, sizeof(post_data),
+             "{\"event\":\"victory\",\"time_ms\":%" PRIu64 "}", elapsed_ms);
+
+    char url[64];
+    snprintf(url, sizeof(url), "http://%s:%d/submit", SERVER_IP, SERVER_PORT);
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .timeout_ms = 3000
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+    esp_err_t err = esp_http_client_perform(client);
+
+    if (err == ESP_OK) {
+        printf("POST OK %" PRIu64 " ms\n", elapsed_ms);
+    } else {
+        printf("POST FAILED: %s\n", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+}
+
+// ---------------- WIFI ----------------
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    }
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        printf("WiFi déconnecté — nouvelle tentative...\n");
+        esp_wifi_connect();
+    }
+    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        printf("WiFi connecté ! Adresse IP obtenue.\n");
+    }
+}
+
+static void wifi_init(void)
+{
+    ESP_ERROR_CHECK(nvs_flash_init());
+
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        WIFI_EVENT,
+        ESP_EVENT_ANY_ID,
+        &wifi_event_handler,
+        NULL,
+        NULL));
+
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        IP_EVENT,
+        IP_EVENT_STA_GOT_IP,
+        &wifi_event_handler,
+        NULL,
+        NULL));
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+
+    wifi_config_t sta = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASSWORD
+        }
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta));
+    ESP_ERROR_CHECK(esp_wifi_start());
 }
 
 // ---------------- UI ----------------
@@ -160,6 +261,9 @@ static void generate_targets(void) {
 }
 
 void app_main(void) {
+    // WIFI
+    wifi_init();
+
     // LEDs
     led_init(PIN_LED_VERTE);
     led_init(PIN_LED_ROUGE);
@@ -197,7 +301,7 @@ void app_main(void) {
                             .channel = LEDC_CHANNEL_0,
                             .duty_resolution = LEDC_TIMER_8_BIT,
                             .base_freq_hz = 4000,
-                            .default_duty = 20};
+                            .default_duty = 60};
     buzzer_init(&bcfg);
 
     // Targets
@@ -210,6 +314,9 @@ void app_main(void) {
     uint64_t next_toggle = now_ms();
     int beep_on = 0;
     int period_ms = 0;
+
+    // Chrono
+    uint64_t start_time = 0;
 
     while (1) {
         int rx, ry;
@@ -245,6 +352,10 @@ void app_main(void) {
         if (joystick_button_edge_falling()) {
             submitted++;
             if (err <= TOL_OK_DEG) {
+                if (start_time == 0) {
+                    start_time = now_ms();
+                }
+
                 led_on(PIN_LED_VERTE);
                 vTaskDelay(pdMS_TO_TICKS(120));
                 led_off(PIN_LED_VERTE);
@@ -253,9 +364,16 @@ void app_main(void) {
                     step++;
                     ui_step(step, (int)lroundf(TARGETS_DEG[step]), lives);
                 } else {
+                    uint64_t end_time = now_ms();
+                    uint64_t elapsed = end_time - start_time;
+
+                    send_time_to_server(elapsed);
+
                     ui_victoire();
                     win_anim();
                     generate_targets();
+
+                    start_time = 0;
                     step = 0;
                     correct = 0;
                     submitted = 0;
@@ -269,16 +387,19 @@ void app_main(void) {
                 ui_wrong_hint();
                 vTaskDelay(pdMS_TO_TICKS(200));
                 led_off(PIN_LED_ROUGE);
+
                 if (lives <= 0) {
                     ui_defaite();
                     lose_anim();
                     generate_targets();
+                    start_time = 0;
                     step = 0;
                     correct = 0;
                     submitted = 0;
                     lives = MAX_LIVES;
                     ui_step(step, (int)lroundf(TARGETS_DEG[step]), lives);
                 } else {
+                    start_time = 0;
                     step = 0;
                     correct = 0;
                     submitted = 0;

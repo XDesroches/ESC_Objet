@@ -27,6 +27,7 @@
         "**/*.REXXINC*{,/*}": "rexx",
         "*.rex": "rexx",
         "*.rexx": "rexx",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "buzzer.h": "c"
     }
 }

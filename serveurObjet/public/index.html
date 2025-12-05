@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Cadenas - Records</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<h1>Record du Cadenas</h1>
+
+<p><strong>Détenteur :</strong> <span id="recName"></span></p>
+<p><strong>Temps record :</strong> <span id="recTime"></span></p>
+
+<h2>Essais récents</h2>
+  <ul id="attempts"></ul>
+
+  <button id="resetBtn" type="button">Réinitialiser les scores</button>
+  
+  <div id="newRecord">
+    <h3>Nouveau record !</h3>
+    <form id="recordForm">
+        <input type="text" id="playerName" placeholder="Votre nom" required />
+        <button type="submit">Enregistrer</button>
+    </form>
+</div>
+
+<script>
+    async function refresh() {
+        const res = await fetch("/record");
+        const data = await res.json();
+
+        document.getElementById("recName").textContent = data.record.name;
+        document.getElementById("recTime").textContent =
+            data.record.time_ms == null ? "Aucun" : (data.record.time_ms/1000).toFixed(2) + " s";
+
+        if (data.record.time_ms != null && data.record.name === "Personne") {
+            window.lastBeatenTime = data.record.time_ms;
+            document.getElementById("newRecord").style.display = "block";
+        } else {
+            document.getElementById("newRecord").style.display = "none";
+        }
+
+        const list = document.getElementById("attempts");
+        list.innerHTML = "";
+        data.attempts.slice(-10).reverse().forEach(t => {
+            let li = document.createElement("li");
+            li.textContent = (t/1000).toFixed(2) + " s";
+            list.appendChild(li);
+        });
+    }
+
+    refresh();
+    setInterval(refresh, 3000);
+
+    // Gestion du nom lors d’un nouveau record
+    document.getElementById("recordForm").onsubmit = async function(e){
+        e.preventDefault();
+        const name = document.getElementById("playerName").value;
+        const time = window.lastBeatenTime;
+
+        await fetch("/setname", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, time_ms: time })
+        });
+
+        document.getElementById("newRecord").style.display = "none";
+        refresh();
+    };
+
+    document.getElementById("resetBtn").onclick = async function () {
+        await fetch("/reset", {
+            method: "POST"
+        });
+        document.getElementById("playerName").value = "";
+        document.getElementById("newRecord").style.display = "none";
+        refresh();
+    };
+</script>
+
+</body>
+</html>

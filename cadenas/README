@@ -37,5 +37,18 @@ Essayer une erreur pour voir la gestion des vies; aller jusqu'à victoire/défai
 - LEDC buzzer = 4 kHz @ 8 bits
 
 ## Remise 2 (communication)
-- MQTT topics: escape/cadenas360/state & /cmd ; dashboard Node-RED.
+- L'ESP32 se connecte en Wi‑Fi au réseau local (`WIFI_SSID` / `WIFI_PASSWORD`
+  dans `main/main.c`). 
+- À la fin d'une partie gagnée, il envoie une requête HTTP POST vers
+  `http://SERVER_IP:SERVER_PORT/submit` (voir `SERVER_IP` / `SERVER_PORT` dans
+  `main/main.c`). 
+- Le corps JSON envoyé est de la forme :
+  `{"event": "victory", "time_ms": <durée_en_ms>}`.
+- Le serveur Node.js (`serveurObjet/server.js`) reçoit cette requête, ajoute le
+  temps à la liste des 10 derniers essais, et met à jour le record si le temps
+  est meilleur. Les données sont persistées dans `serveurObjet/data.json`.
+- L'interface web (`serveurObjet/public/index.html`) interroge régulièrement
+  l'URL `/record`, affiche le record et les derniers essais, et permet de
+  nommer le détenteur du record (`/setname`) ou de réinitialiser les scores
+  (`/reset`).
 
